@@ -5,11 +5,32 @@ built to stay readable during long sessions.
 
 The generator reads an existing REAPER theme, remaps every colour onto the Niru
 Noir palette, and writes a new `.ReaperThemeZip` with the images carried over
-untouched. It is designed to sit on top of the
-[Reapertips theme](https://reapertips.com/products/reapertips-theme), which has
-already solved the hard readability work — this project only changes the colours.
+untouched.
 
-It works with the stock **Default 7.0** theme too.
+## Two variants
+
+Same palette, two bases. The variant only decides which theme REAPER's images
+come from.
+
+| Variant | Base | Output | Images |
+| --- | --- | --- | --- |
+| `noir` | [Reapertips](https://reapertips.com/products/reapertips-theme) | `Niru Noir` | ~3030 |
+| `noir-default` | REAPER's stock Default 7.0 | `Niru Noir Default` | ~1435 |
+| `auto` | Reapertips if installed, else Default | either | — |
+
+**Why two?** The two bases have different lightness thinking, not just different
+tints — 93 of their 110 shared colour keys differ (for example the item
+background is `#9e9e9e` in Reapertips and `#818989` in Default). Reapertips also
+ships 10 extra keys (`col_mi_left`, `col_mi_note`, `col_peaksfade1`, …) that
+Default simply does not have.
+
+Because the generator maps colours **semantically** and leaves keys a base does
+not have alone, both variants come out identical wherever the keys overlap, and
+a missing key keeps the base's own sensible default. So:
+
+- **`Niru Noir`** — Reapertips' stronger item edges and HiDPI images. Needs the
+  Reapertips theme.
+- **`Niru Noir Default`** — works for anyone, using only what ships with REAPER.
 
 ## What "readable" means here
 
@@ -57,22 +78,24 @@ python3 nirureaper-noir.py --palette
 # Preview the colours in a browser
 python3 preview.py > palette.html && xdg-open palette.html
 
-# Build it (picks Reapertips if present, else Default 7.0)
-python3 nirureaper-noir.py
+# Build, picking the base automatically (Reapertips, else Default)
+python3 nirureaper-noir.py --variant auto --install
 
-# Build and install straight into REAPER
-python3 nirureaper-noir.py --install
+# Build a specific variant and install it
+python3 nirureaper-noir.py --variant noir --install
+python3 nirureaper-noir.py --variant noir-default --install
 ```
 
-Then pick it in REAPER under **Options → Themes → Niru Noir**.
+Then pick it in REAPER under **Options → Themes**.
 
 Other flags:
 
 | Flag | What it does |
 | --- | --- |
-| `--base THEME` | Use a specific `.ReaperThemeZip` as the starting point |
+| `--variant auto\|noir\|noir-default` | Which base to build on (`auto` by default) |
+| `--base THEME` | Use a specific `.ReaperThemeZip` instead of a variant's base |
 | `--out DIR` | Where to write the result (default `./dist`) |
-| `--name NAME` | Theme name (default `Niru Noir`) |
+| `--name NAME` | Override the theme name |
 | `--install` | Also copy it into `~/.config/REAPER/ColorThemes` |
 | `--palette` | Print the palette and its contrast, then exit |
 
