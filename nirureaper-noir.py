@@ -21,7 +21,16 @@ import sys
 import zipfile
 from pathlib import Path
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
+
+# The two variants, by the theme they build on. "auto" is resolved at runtime.
+VARIANT_REAPERTIPS = "noir"          # built on the Reapertips theme
+VARIANT_DEFAULT = "noir-default"     # built on REAPER's stock Default theme
+
+VARIANT_THEME_NAMES = {
+    VARIANT_REAPERTIPS: "Niru Noir",
+    VARIANT_DEFAULT: "Niru Noir Default",
+}
 
 # --------------------------------------------------------------------------
 # Palette
@@ -313,27 +322,62 @@ def find_theme_zips(search_dirs: list[Path]) -> list[Path]:
     return found
 
 
-def pick_input_theme(explicit: Path | None) -> Path:
-    """Choose the theme to base on: the one given, else Reapertips, else Default 7."""
-    if explicit:
-        if not explicit.exists():
-            raise SystemExit(f"No such theme: {explicit}")
-        return explicit
+def theme_dirs() -> list[Path]:
+    """Where REAPER keeps themes."""
+    return [Path.home() / ".config" / "REAPER" / "ColorThemes"]
 
-    dirs = [Path.home() / ".config" / "REAPER" / "ColorThemes"]
-    zips = find_theme_zips(dirs)
-    if not zips:
-        raise SystemExit(
-            "No themes found in ~/.config/REAPER/ColorThemes. "
-            "Pass one with --base, or import a theme into REAPER first.")
 
-    for z in zips:
+def find_reapertips() -> Path | None:
+    for z in find_theme_zips(theme_dirs()):
         if "reapertips" in z.name.lower():
             return z
-    for z in zips:
-        if "default_7" in z.name.lower():
-            return z
-    return zips[0]
+    return None
+
+
+def find_default() -> Path | None:
+    """REAPER's stock Default 7 theme, newest first if several are present."""
+    candidates = [z for z in find_theme_zips(theme_dirs())
+                  if z.name.lower().startswith("default_7")]
+    return candidates[-1] if candidates else None
+
+
+def resolve_variant(variant: str) -> tuple[str, Path]:
+    """Work out which base to use. Returns (variant, base theme path)."""
+    if variant == "auto":
+        rt = find_reapertips()
+        if rt:
+            return VARIANT_REAPERTIPS, rt
+        df = find_default()
+        if df:
+            return VARIANT_DEFAULT, df
+        raise SystemExit(
+            "No base theme found. Import the Reapertips theme, or make sure\n"
+            "REAPER's stock Default 7 theme is in ~/.config/REAPER/ColorThemes.")
+
+    if variant == VARIANT_REAPERTIPS:
+        rt = find_reapertips()
+        if not rt:
+            raise SystemExit(
+                "The Reapertips theme was not found in ~/.config/REAPER/ColorThemes.\n"
+                "Install it, or build the default variant with --variant noir-default.")
+        return VARIANT_REAPERTIPS, rt
+
+    if variant == VARIANT_DEFAULT:
+        df = find_default()
+        if not df:
+            raise SystemExit(
+                "REAPER's stock Default 7 theme was not found. It normally ships\n"
+                "with REAPER; open Options > Themes once to let REAPER unpack it.")
+        return VARIANT_DEFAULT, df
+
+    raise SystemExit(f"Unknown variant '{variant}'. Use noir, noir-default or auto.")
+
+
+def pick_input_theme(explicit: Path | None) -> Path:
+    """Choose the theme to base on when one is named directly."""
+    if not explicit.exists():
+        raise SystemExit(f"No such theme: {explicit}")
+    return explicit
 
 
 def unpack_theme(zip_path: Path, work: Path) -> tuple[Path, Path]:
@@ -407,11 +451,15 @@ def main(argv: list[str] | None = None) -> int:
         prog="nirureaper-noir",
         description="Build the Niru Noir REAPER theme from an existing theme.")
     p.add_argument("--version", action="version", version=f"nirureaper-noir {VERSION}")
+    p.add_argument("--variant", choices=("auto", VARIANT_REAPERTIPS, VARIANT_DEFAULT),
+                   default="auto",
+                   help="which variant to build: noir (Reapertips base), "
+                        "noir-default (stock Default base), or auto (default)")
     p.add_argument("--base", metavar="THEME", type=Path,
-                   help="base .ReaperThemeZip (default: Reapertips, else Default 7)")
+                   help="use this .ReaperThemeZip instead of the variant's base")
     p.add_argument("--out", metavar="DIR", type=Path,
                    help="where to write the result (default: ./dist)")
-    p.add_argument("--name", default="Niru Noir", help="theme name (default: Niru Noir)")
+    p.add_argument("--name", help="theme name (defaults to the variant's name)")
     p.add_argument("--install", action="store_true",
                    help="also copy the result into ~/.config/REAPER/ColorThemes")
     p.add_argument("--palette", action="store_true",
@@ -423,7 +471,18 @@ def main(argv: list[str] | None = None) -> int:
         report_palette()
         return 0
 
-    base = pick_input_theme(args.base)
+    if args.base:
+        base = pick_input_theme(args.base)
+        variant = args.variant
+        if variant == "auto":
+            # No name was asked for; guess from what the base looks like.
+            variant = (VARIANT_REAPERTIPS if "reapertips" in base.name.lower()
+                       else VARIANT_DEFAULT)
+    else:
+        variant, base = resolve_variant(args.variant)
+
+    theme_name = args.name or VARIANT_THEME_NAMES.get(variant, "Niru Noir")
+    print(f"  variant:    {variant}")
     print(f"  base theme: {base.name}")
 
     import tempfile
@@ -431,7 +490,7 @@ def main(argv: list[str] | None = None) -> int:
         theme_file, image_dir = unpack_theme(base, Path(tmp))
         print(f"  images:     {len(list(image_dir.rglob('*.png')))} files")
         out_dir = args.out or Path.cwd() / "dist"
-        target = build(theme_file, image_dir, out_dir, args.name)
+        target = build(theme_file, image_dir, out_dir, theme_name)
 
     print(f"  written:    {target}")
     if args.install:
